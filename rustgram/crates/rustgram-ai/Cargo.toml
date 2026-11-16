@@ -1,0 +1,8 @@
+[package]
+name = "rustgram-ai"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustgram-common = { path = "../rustgram-common" }
+serde.workspace = true

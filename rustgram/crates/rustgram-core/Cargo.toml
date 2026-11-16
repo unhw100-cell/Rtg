@@ -1,0 +1,21 @@
+[package]
+name = "rustgram-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustgram-common = { path = "../rustgram-common" }
+rustgram-crypto = { path = "../rustgram-crypto" }
+rustgram-auth = { path = "../rustgram-auth" }
+rustgram-profile = { path = "../rustgram-profile" }
+rustgram-contacts = { path = "../rustgram-contacts" }
+rustgram-messaging = { path = "../rustgram-messaging" }
+rustgram-chat = { path = "../rustgram-chat" }
+rustgram-groups = { path = "../rustgram-groups" }
+rustgram-search = { path = "../rustgram-search" }
+rustgram-storage = { path = "../rustgram-storage" }
+rustgram-sync = { path = "../rustgram-sync" }
+rustgram-media = { path = "../rustgram-media" }
+rustgram-ai = { path = "../rustgram-ai" }
+serde.workspace = true
+serde_json.workspace = true

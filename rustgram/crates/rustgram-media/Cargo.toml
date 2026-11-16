@@ -1,0 +1,9 @@
+[package]
+name = "rustgram-media"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustgram-common = { path = "../rustgram-common" }
+base64.workspace = true
+serde.workspace = true

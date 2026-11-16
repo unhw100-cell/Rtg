@@ -1,0 +1,11 @@
+[package]
+name = "rustgram-messaging"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustgram-common = { path = "../rustgram-common" }
+rustgram-auth = { path = "../rustgram-auth" }
+rustgram-crypto = { path = "../rustgram-crypto" }
+rustgram-media = { path = "../rustgram-media" }
+serde.workspace = true

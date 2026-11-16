@@ -1,0 +1,14 @@
+[package]
+name = "rust-bridge"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "rustgram_bridge"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jni.workspace = true
+rustgram-common = { path = "../rustgram-common" }
+rustgram-core = { path = "../rustgram-core" }
+serde_json.workspace = true

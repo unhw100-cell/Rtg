@@ -1,0 +1,170 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Authenticated Rustgram user profile and preferences.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "displayName": { "type": "string", "description": "Display name" },
+        "username": { "type": "string", "description": "Unique lowercase handle" },
+        "bio": { "type": "string", "description": "Profile bio" },
+        "avatarColorHex": { "type": "string", "description": "Hex color for avatar badge" },
+        "languagePref": { "type": "string", "enum": ["ru", "en"] },
+        "darkModePref": { "type": "boolean" },
+        "blockedUids": { "type": "array", "description": "List of blocked user UIDs" },
+        "lastSeenAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp" }
+      },
+      "required": ["uid", "displayName", "username", "languagePref", "darkModePref", "blockedUids", "createdAt", "updatedAt"]
+    },
+    "HandleEntry": {
+      "title": "HandleEntry",
+      "description": "Public handle lookup entry mapping username to non-PII profile card.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string" },
+        "username": { "type": "string" },
+        "displayName": { "type": "string" },
+        "bio": { "type": "string" },
+        "avatarColorHex": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "username", "displayName", "avatarColorHex", "createdAt", "updatedAt"]
+    },
+    "ContactEntry": {
+      "title": "ContactEntry",
+      "description": "User's saved messenger contact.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "contactUid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "username": { "type": "string" },
+        "bio": { "type": "string" },
+        "avatarColorHex": { "type": "string" },
+        "isFavorite": { "type": "boolean" },
+        "isBlocked": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "contactUid", "displayName", "avatarColorHex", "isFavorite", "isBlocked", "createdAt", "updatedAt"]
+    },
+    "DraftEntry": {
+      "title": "DraftEntry",
+      "description": "Unsent message draft scoped to user and chat.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "chatId": { "type": "string" },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "chatId", "text", "createdAt", "updatedAt"]
+    },
+    "CallLogEntry": {
+      "title": "CallLogEntry",
+      "description": "Audio or video call session record.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "peerName": { "type": "string" },
+        "callType": { "type": "string", "enum": ["audio", "video", "group"] },
+        "status": { "type": "string", "enum": ["completed", "missed", "preview"] },
+        "durationSeconds": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "peerName", "callType", "status", "durationSeconds", "createdAt", "updatedAt"]
+    },
+    "ChatRoom": {
+      "title": "ChatRoom",
+      "description": "Direct chat, group, channel, or Gemini AI bot conversation.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string" },
+        "chatType": { "type": "string", "enum": ["direct", "group", "channel", "ai_bot"] },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "avatarColorHex": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "adminUids": { "type": "array" },
+        "isPublic": { "type": "boolean" },
+        "inviteCode": { "type": "string" },
+        "pinnedMessageId": { "type": "string" },
+        "pinnedPreview": { "type": "string" },
+        "archivedByUids": { "type": "array" },
+        "botRoleId": { "type": "string" },
+        "botModelName": { "type": "string" },
+        "botSystemPrompt": { "type": "string" },
+        "lastMessagePreview": { "type": "string" },
+        "lastMessageSender": { "type": "string" },
+        "lastMessageAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerId", "chatType", "title", "avatarColorHex", "memberUids", "adminUids", "isPublic", "archivedByUids", "lastMessageAt", "createdAt", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Individual message inside a chat room.",
+      "type": "object",
+      "properties": {
+        "chatId": { "type": "string" },
+        "authorId": { "type": "string" },
+        "senderType": { "type": "string", "enum": ["user", "ai_bot"] },
+        "senderName": { "type": "string" },
+        "memberUids": { "type": "array" },
+        "isPublic": { "type": "boolean" },
+        "text": { "type": "string" },
+        "replyToMessageId": { "type": "string" },
+        "replyPreviewText": { "type": "string" },
+        "forwardedFromName": { "type": "string" },
+        "reactions": { "type": "object" },
+        "attachmentType": { "type": "string", "enum": ["none", "image", "audio", "document"] },
+        "attachmentName": { "type": "string" },
+        "attachmentData": { "type": "string" },
+        "isSilent": { "type": "boolean" },
+        "isEdited": { "type": "boolean" },
+        "viewCount": { "type": "integer" },
+        "readByUids": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["chatId", "authorId", "senderType", "senderName", "memberUids", "isPublic", "text", "reactions", "attachmentType", "isSilent", "isEdited", "viewCount", "readByUids", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private user profiles and app preferences"
+    },
+    "/handles/{handleId}": {
+      "schema": { "$ref": "#/entities/HandleEntry" },
+      "description": "Username directory lookup"
+    },
+    "/users/{userId}/contacts/{contactId}": {
+      "schema": { "$ref": "#/entities/ContactEntry" },
+      "description": "User saved contacts"
+    },
+    "/users/{userId}/drafts/{chatId}": {
+      "schema": { "$ref": "#/entities/DraftEntry" },
+      "description": "Per-chat unsent message drafts"
+    },
+    "/users/{userId}/call_logs/{callId}": {
+      "schema": { "$ref": "#/entities/CallLogEntry" },
+      "description": "User audio/video call log records"
+    },
+    "/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/ChatRoom" },
+      "description": "Chats, groups, channels, and Gemini AI bot threads"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/ChatMessage" },
+      "description": "Messages belonging to a chat room"
+    }
+  }
+}

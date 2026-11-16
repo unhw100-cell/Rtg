@@ -1,0 +1,9 @@
+[package]
+name = "rustgram-storage"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustgram-common = { path = "../rustgram-common" }
+rustgram-auth = { path = "../rustgram-auth" }
+serde.workspace = true

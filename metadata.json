@@ -1,0 +1,6 @@
+{
+  "name": "Rustgram",
+  "description": "Android messenger inspired by Telegram with real-time Firestore chats, groups, channels, and multi-turn Gemini AI assistant bots.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,9 @@
+[package]
+name = "rustgram-search"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+rustgram-common = { path = "../rustgram-common" }
+rustgram-chat = { path = "../rustgram-chat" }
+serde.workspace = true
