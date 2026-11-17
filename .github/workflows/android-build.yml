@@ -1,0 +1,120 @@
+name: Rustgram Android CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-debug-apk:
+    name: Build Rust JNI & Android Debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 2. Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: 3. Set up Android SDK and NDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components & NDK 27.2.12479018
+        run: |
+          SDK_ROOT="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "ndk;27.2.12479018"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+
+      - name: 4. Install Rust stable & Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: aarch64-linux-android, armv7-linux-androideabi, i686-linux-android, x86_64-linux-android
+
+      - name: Cache Cargo registry, target, and cargo-ndk
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-ndk
+            rustgram/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rustgram/Cargo.lock', 'rustgram/rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: 5. Install cargo-ndk
+        run: |
+          if ! command -v cargo-ndk >/dev/null 2>&1; then
+            cargo install cargo-ndk --locked
+          fi
+          cargo ndk --version
+
+      - name: Set up Gradle & cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
+      - name: 6. Run Rust checks (fmt, check, clippy, test)
+        working-directory: rustgram
+        run: |
+          cargo fmt --all -- --check
+          cargo check --workspace
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+
+      - name: 7. Build Android JNI (.so) for all supported ABIs
+        run: |
+          rm -rf app/src/main/jniLibs app/build/rust-host-jni
+          bash rustgram/scripts/build_android_jni.sh
+
+      - name: Prepare debug keystore & Gradle wrapper permissions
+        run: |
+          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          fi
+          chmod +x gradlew
+
+      - name: 8. Build Android Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: 9. Verify Debug APK and packaged Rust .so libraries
+        run: |
+          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK_PATH"
+          ls -lh "$APK_PATH"
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            unzip -l "$APK_PATH" | grep -q "lib/${abi}/librustgram_bridge.so"
+            echo "Verified lib/${abi}/librustgram_bridge.so inside APK"
+          done
+
+      - name: 10. Upload Debug APK as GitHub Actions Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rustgram-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

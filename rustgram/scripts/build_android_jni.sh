@@ -29,11 +29,18 @@ cp "$CARGO_TARGET_DIR/release/librustgram_bridge.so" "$HOST_JNI_DIR/librustgram_
 
 echo "=== 2. Building Android JNI shared libraries via cargo-ndk (16KB page aligned) ==="
 NDK_DIR=""
-if [ -d "${ANDROID_SDK_ROOT:-/opt/android/sdk}/ndk" ]; then
-  NDK_DIR="$(find "${ANDROID_SDK_ROOT:-/opt/android/sdk}/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+if [ -n "${ANDROID_NDK_HOME:-}" ] && [ -d "$ANDROID_NDK_HOME" ]; then
+  NDK_DIR="$ANDROID_NDK_HOME"
+elif [ -n "${ANDROID_NDK_ROOT:-}" ] && [ -d "$ANDROID_NDK_ROOT" ]; then
+  NDK_DIR="$ANDROID_NDK_ROOT"
+else
+  SDK_DIR="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/opt/android/sdk}}"
+  if [ -d "$SDK_DIR/ndk" ]; then
+    NDK_DIR="$(find "$SDK_DIR/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)"
+  fi
 fi
-if [ -z "$NDK_DIR" ]; then
-  echo "Android NDK not found under ANDROID_SDK_ROOT/ndk" >&2
+if [ -z "$NDK_DIR" ] || [ ! -d "$NDK_DIR" ]; then
+  echo "Android NDK not found (checked ANDROID_NDK_HOME, ANDROID_NDK_ROOT, and SDK ndk/)" >&2
   exit 1
 fi
 export ANDROID_NDK_HOME="$NDK_DIR"
