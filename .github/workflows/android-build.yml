@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - master
+      - ci/android-build
   pull_request:
     branches:
       - main
@@ -91,12 +92,22 @@ jobs:
           rm -rf app/src/main/jniLibs app/build/rust-host-jni
           bash rustgram/scripts/build_android_jni.sh
 
-      - name: Prepare debug keystore & Gradle wrapper permissions
+      - name: Generate ephemeral debug keystore & verify Gradle wrapper
         run: |
-          if [ ! -f debug.keystore ] && [ -f debug.keystore.base64 ]; then
-            base64 -d debug.keystore.base64 > debug.keystore
-          fi
+          test -f gradle/wrapper/gradle-wrapper.jar
+          test -f gradlew
           chmod +x gradlew
+          rm -f debug.keystore
+          keytool -genkeypair \
+            -keystore debug.keystore \
+            -storetype PKCS12 \
+            -alias androiddebugkey \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 1 \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -storepass android \
+            -keypass android >/dev/null
 
       - name: 8. Build Android Debug APK
         run: ./gradlew assembleDebug --stacktrace
@@ -118,3 +129,7 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Clean up ephemeral debug keystore
+        if: always()
+        run: rm -f debug.keystore
