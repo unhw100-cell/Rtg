@@ -19,6 +19,7 @@ import com.example.data.repository.GeminiModels
 import com.example.data.repository.MessagingRepository
 import com.example.rust.RustBridge
 import com.example.rust.RustCoreInfo
+import com.example.rust.RustNativeStatus
 import com.example.rust.RustNotificationDecision
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -58,7 +59,8 @@ class MessengerViewModel(
   private val initialDisplayName: String,
 ) : ViewModel() {
 
-  val rustCoreInfo: RustCoreInfo by lazy { RustBridge.coreInfo() }
+  val rustNativeStatus: RustNativeStatus = RustBridge.probeNativeLibrary()
+  val rustCoreInfo: RustCoreInfo? = (rustNativeStatus as? RustNativeStatus.Ready)?.info
 
   private val _selectedChatId = MutableStateFlow<String?>(null)
   val selectedChatId: StateFlow<String?> = _selectedChatId.asStateFlow()
@@ -96,7 +98,14 @@ class MessengerViewModel(
   private val _handleLookupNotFound = MutableStateFlow(false)
   val handleLookupNotFound: StateFlow<Boolean> = _handleLookupNotFound.asStateFlow()
 
+  private val _incomingNotification = MutableStateFlow<RustNotificationDecision?>(null)
+  val incomingNotification: StateFlow<RustNotificationDecision?> =
+    _incomingNotification.asStateFlow()
+
   private var botStreamJob: Job? = null
+  private val processedReadMessageIds = mutableSetOf<String>()
+  private val seenChatLastPreviews = mutableMapOf<String, String>()
+  private var initialChatsObserved = false
 
   val userProfile: StateFlow<UserProfile?> =
     messagingRepository
@@ -197,6 +206,59 @@ class MessengerViewModel(
 
   init {
     bootstrapUserWorkspace()
+    observeIncomingActivity()
+  }
+
+  private fun observeIncomingActivity() {
+    viewModelScope.launch {
+      activeMessagesState.collect { state ->
+        val chatId = _selectedChatId.value ?: return@collect
+        val msgs = (state as? UiState.Success)?.data ?: return@collect
+        val unread =
+          msgs.filter { msg ->
+            msg.id.isNotBlank() &&
+              currentUserId !in msg.readByUids &&
+              processedReadMessageIds.add("${chatId}_${msg.id}")
+          }
+        if (unread.isNotEmpty()) {
+          messagingRepository.markMessagesRead(chatId, unread)
+        }
+      }
+    }
+
+    viewModelScope.launch {
+      chatsState.collect { state ->
+        val rooms = (state as? UiState.Success)?.data ?: return@collect
+        if (!initialChatsObserved) {
+          rooms.forEach { seenChatLastPreviews[it.id] = it.lastMessagePreview }
+          initialChatsObserved = true
+          return@collect
+        }
+        val myName = userProfile.value?.displayName ?: initialDisplayName
+        for (room in rooms) {
+          val prev = seenChatLastPreviews[room.id]
+          seenChatLastPreviews[room.id] = room.lastMessagePreview
+          if (prev != null && prev != room.lastMessagePreview && room.id != _selectedChatId.value) {
+            if (room.lastMessageSender.isNotBlank() && room.lastMessageSender != myName) {
+              val decision =
+                evaluateNotification(
+                  chat = room,
+                  message =
+                    ChatMessage(
+                      authorId = room.lastMessageSender,
+                      senderName = room.lastMessageSender,
+                      text = room.lastMessagePreview,
+                      isSilent = false,
+                    ),
+                )
+              if (decision.shouldNotify) {
+                _incomingNotification.value = decision
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   private fun bootstrapUserWorkspace() {
@@ -255,12 +317,18 @@ class MessengerViewModel(
     }
   }
 
+  fun dismissIncomingNotification() {
+    _incomingNotification.value = null
+  }
+
   fun evaluateNotification(chat: ChatRoom, message: ChatMessage): RustNotificationDecision {
-    val blockedUids =
+    val contactBlocked =
       (contactsState.value as? UiState.Success)?.data
         .orEmpty()
         .filter { it.isBlocked }
         .map { it.contactUid }
+    val profileBlocked = userProfile.value?.blockedUids.orEmpty()
+    val blockedUids = (contactBlocked + profileBlocked).distinct()
     return RustBridge.evaluateNotification(
       currentUid = currentUserId,
       authorId = message.authorId,
@@ -634,6 +702,54 @@ class MessengerViewModel(
     }
   }
 
+  fun leavePublicChannel(chat: ChatRoom) {
+    viewModelScope.launch {
+      try {
+        messagingRepository.leavePublicChannel(chat)
+        if (_selectedChatId.value == chat.id) {
+          _selectedChatId.value = null
+        }
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        _actionError.value = e.localizedMessage
+      }
+    }
+  }
+
+  fun deleteChatRoom(chat: ChatRoom) {
+    viewModelScope.launch {
+      try {
+        messagingRepository.deleteChatRoom(chat)
+        if (_selectedChatId.value == chat.id) {
+          _selectedChatId.value = null
+        }
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        _actionError.value = e.localizedMessage
+      }
+    }
+  }
+
+  fun addGroupMemberByHandle(chat: ChatRoom, rawUsername: String, onAdded: () -> Unit = {}) {
+    viewModelScope.launch {
+      try {
+        val handle = messagingRepository.lookupHandle(rawUsername)
+        if (handle == null) {
+          _actionError.value = "User $rawUsername not found"
+          return@launch
+        }
+        messagingRepository.addGroupMember(chat, handle.ownerUid)
+        onAdded()
+      } catch (e: CancellationException) {
+        throw e
+      } catch (e: Exception) {
+        _actionError.value = e.localizedMessage
+      }
+    }
+  }
+
   fun toggleArchive(chat: ChatRoom) {
     val archived = currentUserId in chat.archivedByUids
     viewModelScope.launch {
@@ -719,7 +835,11 @@ class MessengerViewModel(
   fun toggleContactBlocked(contact: ContactEntry) {
     viewModelScope.launch {
       try {
-        messagingRepository.toggleContactBlocked(contact.id, !contact.isBlocked)
+        messagingRepository.toggleContactBlocked(
+          contactId = contact.id,
+          contactUid = contact.contactUid,
+          blocked = !contact.isBlocked,
+        )
       } catch (e: CancellationException) {
         throw e
       } catch (e: Exception) {

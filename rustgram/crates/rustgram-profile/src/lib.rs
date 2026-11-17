@@ -104,12 +104,16 @@ pub fn build_profile_update(
     let clean_color = validate_hex_color(avatar_color_hex, "#D96B27");
     let clean_lang = normalize_language(language_pref);
 
-    let clean_blocked: Vec<String> = blocked_uids
-        .into_iter()
-        .map(|u| u.trim().to_string())
-        .filter(|u| !u.is_empty() && u != &clean_uid)
-        .take(50)
-        .collect();
+    let mut clean_blocked: Vec<String> = Vec::new();
+    for raw_blocked in blocked_uids {
+        let u = raw_blocked.trim().to_string();
+        if !u.is_empty() && u != clean_uid && !clean_blocked.contains(&u) {
+            clean_blocked.push(u);
+            if clean_blocked.len() >= limits::MAX_MEMBERS {
+                break;
+            }
+        }
+    }
 
     Ok(ProfileUpdatePlan {
         profile: UserProfile {

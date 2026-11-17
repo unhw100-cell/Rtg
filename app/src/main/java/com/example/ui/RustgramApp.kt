@@ -1,21 +1,27 @@
 package com.example.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -51,6 +57,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.R
 import com.example.data.repository.GeminiBotRepository
 import com.example.data.repository.MessagingRepository
+import com.example.rust.RustNativeStatus
 import com.example.ui.auth.AuthScreen
 import com.example.ui.auth.authStateFlow
 import com.example.ui.auth.signOut
@@ -142,6 +149,7 @@ private fun MainMessengerContent(viewModel: MessengerViewModel) {
   val handleLookupResult by viewModel.handleLookupResult.collectAsStateWithLifecycle()
   val handleLookupNotFound by viewModel.handleLookupNotFound.collectAsStateWithLifecycle()
   val actionError by viewModel.actionError.collectAsStateWithLifecycle()
+  val incomingNotification by viewModel.incomingNotification.collectAsStateWithLifecycle()
 
   val languageCode = profile?.languagePref ?: "ru"
   val darkMode = profile?.darkModePref ?: true
@@ -155,6 +163,14 @@ private fun MainMessengerContent(viewModel: MessengerViewModel) {
     if (!err.isNullOrBlank()) {
       snackbarHostState.showSnackbar(err)
       viewModel.clearError()
+    }
+  }
+
+  LaunchedEffect(incomingNotification) {
+    val notif = incomingNotification
+    if (notif != null && notif.shouldNotify) {
+      snackbarHostState.showSnackbar("${notif.title}: ${notif.preview}")
+      viewModel.dismissIncomingNotification()
     }
   }
 
@@ -196,6 +212,11 @@ private fun MainMessengerContent(viewModel: MessengerViewModel) {
           onUpdateBotConfig = { model, prompt ->
             viewModel.updateBotSettings(selectedChat.id, model, prompt)
           },
+          onAddMemberByHandle = { handle, onAdded ->
+            viewModel.addGroupMemberByHandle(selectedChat, handle, onAdded)
+          },
+          onLeaveChannel = { viewModel.leavePublicChannel(selectedChat) },
+          onDeleteChat = { viewModel.deleteChatRoom(selectedChat) },
         )
       } else {
         val tabItems =
@@ -262,6 +283,32 @@ private fun MainMessengerContent(viewModel: MessengerViewModel) {
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
                   )
+                }
+              }
+
+              val nativeErr = (viewModel.rustNativeStatus as? RustNativeStatus.Unavailable)?.reason
+              AnimatedVisibility(visible = nativeErr != null) {
+                Surface(
+                  color = MaterialTheme.colorScheme.errorContainer,
+                  modifier = Modifier.fillMaxWidth(),
+                ) {
+                  Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                  ) {
+                    Icon(
+                      imageVector = Icons.Filled.Warning,
+                      contentDescription = null,
+                      tint = MaterialTheme.colorScheme.onErrorContainer,
+                    )
+                    Text(
+                      text = "Rust JNI: ${nativeErr.orEmpty()}",
+                      style = MaterialTheme.typography.labelMedium,
+                      color = MaterialTheme.colorScheme.onErrorContainer,
+                      modifier = Modifier.weight(1f),
+                    )
+                  }
                 }
               }
 
@@ -379,6 +426,11 @@ private fun MainMessengerContent(viewModel: MessengerViewModel) {
                     onUpdateBotConfig = { model, prompt ->
                       viewModel.updateBotSettings(selectedChat.id, model, prompt)
                     },
+                    onAddMemberByHandle = { handle, onAdded ->
+                      viewModel.addGroupMemberByHandle(selectedChat, handle, onAdded)
+                    },
+                    onLeaveChannel = { viewModel.leavePublicChannel(selectedChat) },
+                    onDeleteChat = { viewModel.deleteChatRoom(selectedChat) },
                   )
                 } else {
                   Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

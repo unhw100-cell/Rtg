@@ -138,30 +138,55 @@ class MessagingRepository(
   ) {
     val uid = requireUserId()
     val userRef = db.collection("users").document(uid)
-    val plan =
-      RustBridge.buildProfileUpdate(
-        uid = uid,
-        displayName = displayName,
-        username = username,
-        bio = bio,
-        avatarColorHex = avatarColorHex,
-        languagePref = languagePref,
-        darkModePref = darkModePref,
-      )
-    val payload =
-      mapOf(
-        "displayName" to plan.displayName,
-        "username" to plan.username,
-        "bio" to plan.bio,
-        "avatarColorHex" to plan.avatarColorHex,
-        "languagePref" to plan.languagePref,
-        "darkModePref" to plan.darkModePref,
-        "lastSeenAt" to FieldValue.serverTimestamp(),
-        "updatedAt" to FieldValue.serverTimestamp(),
-      )
     try {
+      val currentSnap = userRef.get().await()
+      val previousUsername = currentSnap.getString("username").orEmpty()
+      val existingBlocked =
+        (currentSnap.get("blockedUids") as? List<*>)
+          ?.mapNotNull { it as? String }
+          .orEmpty()
+      val plan =
+        RustBridge.buildProfileUpdate(
+          uid = uid,
+          displayName = displayName,
+          username = username,
+          bio = bio,
+          avatarColorHex = avatarColorHex,
+          languagePref = languagePref,
+          darkModePref = darkModePref,
+          blockedUids = existingBlocked,
+        )
+
+      val newHandleRef = db.collection("handles").document(plan.username)
+      val existingHandle = newHandleRef.get().await()
+      if (existingHandle.exists() && existingHandle.getString("ownerUid") != uid) {
+        throw IllegalStateException("@${plan.username} is already taken by another user.")
+      }
+
+      val payload =
+        mapOf(
+          "displayName" to plan.displayName,
+          "username" to plan.username,
+          "bio" to plan.bio,
+          "avatarColorHex" to plan.avatarColorHex,
+          "languagePref" to plan.languagePref,
+          "darkModePref" to plan.darkModePref,
+          "lastSeenAt" to FieldValue.serverTimestamp(),
+          "updatedAt" to FieldValue.serverTimestamp(),
+        )
       userRef.update(payload).await()
       registerHandle(plan.uid, plan.username, plan.displayName, plan.bio, plan.avatarColorHex)
+
+      if (previousUsername.isNotBlank() && previousUsername != plan.username) {
+        val oldHandleId = sanitizeId(previousUsername, "")
+        if (oldHandleId.isNotBlank() && oldHandleId != plan.username) {
+          val oldRef = db.collection("handles").document(oldHandleId)
+          val oldSnap = oldRef.get().await()
+          if (oldSnap.exists() && oldSnap.getString("ownerUid") == uid) {
+            oldRef.delete().await()
+          }
+        }
+      }
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
@@ -316,16 +341,34 @@ class MessagingRepository(
     }
   }
 
-  suspend fun toggleContactBlocked(contactId: String, blocked: Boolean) {
+  suspend fun toggleContactBlocked(contactId: String, contactUid: String, blocked: Boolean) {
     val uid = requireUserId()
     val cleanContactId = sanitizeId(contactId, "contact")
-    val ref = db.collection("users").document(uid).collection("contacts").document(cleanContactId)
+    val contactRef = db.collection("users").document(uid).collection("contacts").document(cleanContactId)
+    val userRef = db.collection("users").document(uid)
     try {
-      ref.update(mapOf("isBlocked" to blocked, "updatedAt" to FieldValue.serverTimestamp())).await()
+      contactRef
+        .update(mapOf("isBlocked" to blocked, "updatedAt" to FieldValue.serverTimestamp()))
+        .await()
+      if (contactUid.isNotBlank()) {
+        val cleanPeerUid = sanitizeId(contactUid, "")
+        if (cleanPeerUid.isNotBlank()) {
+          userRef
+            .update(
+              mapOf(
+                "blockedUids" to
+                  if (blocked) FieldValue.arrayUnion(cleanPeerUid)
+                  else FieldValue.arrayRemove(cleanPeerUid),
+                "updatedAt" to FieldValue.serverTimestamp(),
+              )
+            )
+            .await()
+        }
+      }
     } catch (e: CancellationException) {
       throw e
     } catch (e: Exception) {
-      handleFirestoreError(e, OperationType.UPDATE, ref.path)
+      handleFirestoreError(e, OperationType.UPDATE, contactRef.path)
       throw e
     }
   }
@@ -340,14 +383,7 @@ class MessagingRepository(
         .snapshots()
         .map { snap ->
           val rooms = snap.toObjects(ChatRoom::class.java, ServerTimestampBehavior.ESTIMATE)
-          RustBridge.filterChatWorkspace(
-            chats = rooms,
-            publicChannels = emptyList(),
-            currentUid = userId,
-            filter = "ALL",
-            query = "",
-          )
-          rooms.sortedByDescending { it.lastMessageAt ?: it.createdAt ?: Timestamp(0, 0) }
+          RustBridge.sortChats(rooms)
         }
         .catch { error ->
           val firestoreError = error.unwrapFirestoreException()
@@ -482,6 +518,44 @@ class MessagingRepository(
       throw e
     } catch (e: Exception) {
       handleFirestoreError(e, OperationType.UPDATE, ref.path)
+      throw e
+    }
+  }
+
+  suspend fun leavePublicChannel(chat: ChatRoom) {
+    val uid = requireUserId()
+    val updatedMembers = RustBridge.leavePublicChannel(uid, chat)
+    if (updatedMembers == chat.memberUids) return
+    val ref = db.collection("chats").document(chat.id)
+    try {
+      ref
+        .update(
+          mapOf(
+            "memberUids" to updatedMembers,
+            "updatedAt" to FieldValue.serverTimestamp(),
+          )
+        )
+        .await()
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.UPDATE, ref.path)
+      throw e
+    }
+  }
+
+  suspend fun deleteChatRoom(chat: ChatRoom) {
+    val uid = requireUserId()
+    if (chat.ownerId != uid) {
+      throw IllegalStateException("Only the chat owner can delete this room.")
+    }
+    val ref = db.collection("chats").document(chat.id)
+    try {
+      ref.delete().await()
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.DELETE, ref.path)
       throw e
     }
   }
@@ -731,6 +805,31 @@ class MessagingRepository(
     } catch (e: Exception) {
       handleFirestoreError(e, OperationType.UPDATE, msgRef.path)
       throw e
+    }
+  }
+
+  suspend fun markMessagesRead(chatId: String, messages: List<ChatMessage>) {
+    val uid = requireUserId()
+    val updates = RustBridge.planReadReceipts(uid, messages)
+    if (updates.isEmpty()) return
+    val col = db.collection("chats").document(chatId).collection("messages")
+    val batch = db.batch()
+    for (u in updates.take(25)) {
+      batch.update(
+        col.document(u.messageId),
+        mapOf(
+          "readByUids" to u.readByUids,
+          "viewCount" to u.viewCount,
+          "updatedAt" to FieldValue.serverTimestamp(),
+        ),
+      )
+    }
+    try {
+      batch.commit().await()
+    } catch (e: CancellationException) {
+      throw e
+    } catch (e: Exception) {
+      handleFirestoreError(e, OperationType.UPDATE, col.path)
     }
   }
 

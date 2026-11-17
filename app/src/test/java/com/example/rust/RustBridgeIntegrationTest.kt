@@ -203,5 +203,28 @@ class RustBridgeIntegrationTest {
     assertEquals("gemini-4-argon", aiReq.modelName)
     assertEquals("Please analyze the attached image.", aiReq.userPrompt)
     assertEquals(1, aiReq.history.size)
+
+    // Probe helper never crashes and matches coreInfo
+    val status = RustBridge.probeNativeLibrary()
+    assertTrue(status is RustNativeStatus.Ready)
+
+    // Leave public channel preserves owner and removes non-owner member
+    val joinedChan = channelRoom.copy(memberUids = listOf("uid_other", "uid_alice"))
+    val afterLeave = RustBridge.leavePublicChannel("uid_alice", joinedChan)
+    assertEquals(listOf("uid_other"), afterLeave)
+
+    // Sort chats prioritizes newer activity
+    val older = groupRoom.copy(id = "c_old", lastMessageAt = com.google.firebase.Timestamp(100, 0))
+    val newer = channelRoom.copy(id = "c_new", lastMessageAt = com.google.firebase.Timestamp(500, 0))
+    assertEquals(listOf("c_new", "c_old"), RustBridge.sortChats(listOf(older, newer)).map { it.id })
+
+    // Read receipt planner only plans updates for unread messages
+    val unread = ChatMessage(id = "u1", authorId = "uid_bob", readByUids = listOf("uid_bob"), viewCount = 1L)
+    val alreadyRead = ChatMessage(id = "r1", authorId = "uid_bob", readByUids = listOf("uid_bob", "uid_alice"), viewCount = 2L)
+    val receipts = RustBridge.planReadReceipts("uid_alice", listOf(unread, alreadyRead))
+    assertEquals(1, receipts.size)
+    assertEquals("u1", receipts[0].messageId)
+    assertEquals(listOf("uid_bob", "uid_alice"), receipts[0].readByUids)
+    assertEquals(2L, receipts[0].viewCount)
   }
 }

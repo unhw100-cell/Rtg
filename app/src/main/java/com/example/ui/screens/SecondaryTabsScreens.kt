@@ -1,7 +1,11 @@
 package com.example.ui.screens
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.pm.PackageManager
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -47,6 +51,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -57,6 +62,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -83,7 +89,12 @@ import com.example.ui.components.formatTimeShort
 import com.example.ui.components.parseColorHex
 import com.example.ui.i18n.AppStrings
 import com.example.ui.viewmodel.UiState
+import java.util.Locale
+import kotlin.math.sqrt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 @Composable
 fun ContactsTabScreen(
@@ -343,6 +354,7 @@ fun AiBotsTabScreen(
   }
 }
 
+@SuppressLint("MissingPermission")
 @Composable
 fun CallsTabScreen(
   callLogsState: UiState<List<CallLogEntry>>,
@@ -354,11 +366,13 @@ fun CallsTabScreen(
   var callElapsedSeconds by remember { mutableLongStateOf(0L) }
   var micMuted by remember { mutableStateOf(false) }
   var speakerOn by remember { mutableStateOf(false) }
+  var micRmsLevel by remember { mutableFloatStateOf(0f) }
 
   val audioPermissionLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
       if (granted) {
         callElapsedSeconds = 0L
+        micMuted = false
         activeCallType = "audio"
       }
     }
@@ -369,6 +383,70 @@ fun CallsTabScreen(
         delay(1000L)
         callElapsedSeconds += 1L
       }
+    } else {
+      micRmsLevel = 0f
+    }
+  }
+
+  LaunchedEffect(activeCallType, micMuted) {
+    if (activeCallType == "audio" && !micMuted) {
+      val hasAudioPerm =
+        ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+          PackageManager.PERMISSION_GRANTED
+      if (hasAudioPerm) {
+        withContext(Dispatchers.IO) {
+          val sampleRate = 16000
+          val minBuf =
+            AudioRecord.getMinBufferSize(
+              sampleRate,
+              AudioFormat.CHANNEL_IN_MONO,
+              AudioFormat.ENCODING_PCM_16BIT,
+            )
+          if (minBuf > 0) {
+            var recorder: AudioRecord? = null
+            try {
+              recorder =
+                AudioRecord(
+                  MediaRecorder.AudioSource.MIC,
+                  sampleRate,
+                  AudioFormat.CHANNEL_IN_MONO,
+                  AudioFormat.ENCODING_PCM_16BIT,
+                  minBuf,
+                )
+              if (recorder.state == AudioRecord.STATE_INITIALIZED) {
+                recorder.startRecording()
+                val buf = ShortArray(minBuf / 2)
+                while (isActive) {
+                  val read = recorder.read(buf, 0, buf.size)
+                  if (read > 0) {
+                    var sumSq = 0.0
+                    for (i in 0 until read) {
+                      val sample = buf[i].toDouble() / 32768.0
+                      sumSq += sample * sample
+                    }
+                    val rms = sqrt(sumSq / read).toFloat().coerceIn(0f, 1f)
+                    withContext(Dispatchers.Main) {
+                      micRmsLevel = (rms * 4f).coerceIn(0f, 1f)
+                    }
+                  }
+                  delay(80L)
+                }
+              }
+            } catch (_: Throwable) {
+              withContext(Dispatchers.Main) { micRmsLevel = 0f }
+            } finally {
+              try {
+                recorder?.stop()
+              } catch (_: Throwable) {}
+              try {
+                recorder?.release()
+              } catch (_: Throwable) {}
+            }
+          }
+        }
+      }
+    } else {
+      micRmsLevel = 0f
     }
   }
 
@@ -492,10 +570,22 @@ fun CallsTabScreen(
           verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
           Text(
-            text = String.format("%02d:%02d", callElapsedSeconds / 60, callElapsedSeconds % 60),
+            text =
+              String.format(
+                Locale.US,
+                "%02d:%02d",
+                callElapsedSeconds / 60,
+                callElapsedSeconds % 60,
+              ),
             style = MaterialTheme.typography.headlineLarge,
             color = MaterialTheme.colorScheme.primary,
           )
+          if (callType == "audio") {
+            LinearProgressIndicator(
+              progress = { micRmsLevel },
+              modifier = Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)),
+            )
+          }
           Text(
             text = if (micMuted) strings.micMuted else strings.micActive,
             style = MaterialTheme.typography.bodyMedium,

@@ -143,15 +143,31 @@ dependencies {
 
 tasks.withType<Test> {
   failFast = true
+  forkEvery = 1
   timeout.set(Duration.ofMinutes(2))
   testLogging {
     events("passed", "failed", "skipped")
   }
 }
 
-tasks.register<Exec>("buildRustJni") {
-  group = "rust"
-  description = "Compiles the Rust Core workspace (15 crates) and builds Android/host JNI .so libraries."
-  workingDir = rootDir
-  commandLine("bash", "rustgram/scripts/build_android_jni.sh")
-}
+val buildRustJni =
+  tasks.register<Exec>("buildRustJni") {
+    group = "rust"
+    description =
+      "Compiles the Rust Core workspace (15 crates) and builds Android/host JNI .so libraries."
+    workingDir = rootDir
+    inputs.dir(file("${rootDir}/rustgram/crates"))
+    inputs.file(file("${rootDir}/rustgram/Cargo.toml"))
+    inputs.file(file("${rootDir}/rustgram/Cargo.lock"))
+    inputs.file(file("${rootDir}/rustgram/scripts/build_android_jni.sh"))
+    outputs.files(
+      file("${projectDir}/src/main/jniLibs/arm64-v8a/librustgram_bridge.so"),
+      file("${projectDir}/src/main/jniLibs/armeabi-v7a/librustgram_bridge.so"),
+      file("${projectDir}/src/main/jniLibs/x86_64/librustgram_bridge.so"),
+      file("${projectDir}/src/main/jniLibs/x86/librustgram_bridge.so"),
+      file("${projectDir}/build/rust-host-jni/librustgram_bridge.so"),
+    )
+    commandLine("bash", "rustgram/scripts/build_android_jni.sh")
+  }
+
+tasks.named("preBuild") { dependsOn(buildRustJni) }

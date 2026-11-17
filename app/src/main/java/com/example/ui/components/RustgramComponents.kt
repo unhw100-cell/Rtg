@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Campaign
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Mic
@@ -278,6 +279,7 @@ fun ChatListItemCard(
 fun MessageBubble(
   message: ChatMessage,
   isMine: Boolean,
+  currentUserId: String = "",
   isChannel: Boolean,
   isPinned: Boolean,
   strings: AppStrings,
@@ -539,10 +541,16 @@ fun MessageBubble(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
           )
           if (isMine) {
+            val isReadByPeer =
+              message.readByUids.any { uid ->
+                uid.isNotBlank() && uid != currentUserId && uid != message.authorId
+              }
             Icon(
-              imageVector = Icons.Filled.DoneAll,
+              imageVector = if (isReadByPeer) Icons.Filled.DoneAll else Icons.Filled.Done,
               contentDescription = null,
-              tint = MaterialTheme.colorScheme.primary,
+              tint =
+                if (isReadByPeer) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
               modifier = Modifier.size(14.dp),
             )
           }

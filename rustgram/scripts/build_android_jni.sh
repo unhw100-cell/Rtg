@@ -12,7 +12,11 @@ if [ -f "$HOME/.cargo/env" ]; then
 fi
 
 if ! command -v cargo >/dev/null 2>&1; then
-  echo "cargo not found on PATH" >&2
+  if [ -f "$JNI_LIBS_DIR/arm64-v8a/librustgram_bridge.so" ] && [ -f "$JNI_LIBS_DIR/x86_64/librustgram_bridge.so" ]; then
+    echo "cargo not found; using prebuilt jniLibs/*.so"
+    exit 0
+  fi
+  echo "cargo not found on PATH and prebuilt jniLibs are missing" >&2
   exit 1
 fi
 

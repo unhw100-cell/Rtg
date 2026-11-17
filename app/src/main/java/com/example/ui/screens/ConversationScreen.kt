@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -62,6 +63,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -132,6 +134,9 @@ fun ConversationScreen(
   onDeleteMessage: (String) -> Unit,
   onToggleSilentMode: () -> Unit,
   onUpdateBotConfig: (model: String, systemPrompt: String) -> Unit,
+  onAddMemberByHandle: (rawUsername: String, onAdded: () -> Unit) -> Unit = { _, _ -> },
+  onLeaveChannel: () -> Unit = {},
+  onDeleteChat: () -> Unit = {},
 ) {
   BackHandler(enabled = showBackButton) { onBack() }
 
@@ -563,6 +568,7 @@ fun ConversationScreen(
               MessageBubble(
                 message = msg,
                 isMine = isMine,
+                currentUserId = currentUserId,
                 isChannel = chat.chatType == "channel",
                 isPinned = chat.pinnedMessageId == msg.id,
                 strings = strings,
@@ -782,11 +788,18 @@ fun ConversationScreen(
   }
 
   if (showRoomInfoDialog) {
+    var memberHandleInput by remember(chat.id) { mutableStateOf("") }
+    val isAdmin = currentUserId in chat.adminUids || chat.ownerId == currentUserId
+    val canAddMembers = (chat.chatType == "group" || chat.chatType == "channel") && isAdmin
+    val canLeavePublicChannel =
+      chat.isPublic && chat.ownerId != currentUserId && currentUserId in chat.memberUids
+    val canDeleteRoom = chat.ownerId == currentUserId && !chat.id.startsWith("saved_")
+
     AlertDialog(
       onDismissRequest = { showRoomInfoDialog = false },
       title = { Text(chat.title) },
       text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
           if (chat.description.isNotBlank()) {
             Text(text = chat.description, style = MaterialTheme.typography.bodyMedium)
           }
@@ -800,6 +813,54 @@ fun ConversationScreen(
               style = MaterialTheme.typography.labelMedium,
               color = MaterialTheme.colorScheme.primary,
             )
+          }
+          if (canAddMembers) {
+            HorizontalDivider()
+            OutlinedTextField(
+              value = memberHandleInput,
+              onValueChange = { memberHandleInput = it },
+              label = { Text(strings.lookupHandleHint) },
+              singleLine = true,
+              modifier = Modifier.fillMaxWidth().testTag("add_member_handle_input"),
+            )
+            Button(
+              onClick = {
+                val handle = memberHandleInput.trim()
+                if (handle.isNotBlank()) {
+                  onAddMemberByHandle(handle) {
+                    memberHandleInput = ""
+                  }
+                }
+              },
+              enabled = memberHandleInput.trim().length >= 3,
+              modifier = Modifier.fillMaxWidth().testTag("add_member_confirm_button"),
+            ) {
+              Text(strings.addContact)
+            }
+          }
+          if (canLeavePublicChannel) {
+            OutlinedButton(
+              onClick = {
+                showRoomInfoDialog = false
+                onLeaveChannel()
+              },
+              modifier = Modifier.fillMaxWidth().testTag("leave_channel_button"),
+            ) {
+              Text(strings.unarchive.takeIf { false } ?: "Unsubscribe / Выйти")
+            }
+          }
+          if (canDeleteRoom) {
+            OutlinedButton(
+              onClick = {
+                showRoomInfoDialog = false
+                onDeleteChat()
+              },
+              colors =
+                ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+              modifier = Modifier.fillMaxWidth().testTag("delete_chat_room_button"),
+            ) {
+              Text(strings.delete)
+            }
           }
         }
       },

@@ -3,6 +3,7 @@ package com.example.data.model
 import com.google.firebase.Timestamp
 import com.google.firebase.firestore.DocumentId
 import com.google.firebase.firestore.IgnoreExtraProperties
+import com.google.firebase.firestore.PropertyName
 import com.google.firebase.firestore.ServerTimestamp
 
 @IgnoreExtraProperties
@@ -42,8 +43,8 @@ data class ContactEntry(
   val username: String = "",
   val bio: String = "",
   val avatarColorHex: String = "#1D4E89",
-  val isFavorite: Boolean = false,
-  val isBlocked: Boolean = false,
+  @get:PropertyName("isFavorite") val isFavorite: Boolean = false,
+  @get:PropertyName("isBlocked") val isBlocked: Boolean = false,
   @ServerTimestamp val createdAt: Timestamp? = null,
   @ServerTimestamp val updatedAt: Timestamp? = null,
 )
@@ -80,7 +81,7 @@ data class ChatRoom(
   val avatarColorHex: String = "#1D4E89",
   val memberUids: List<String> = emptyList(),
   val adminUids: List<String> = emptyList(),
-  val isPublic: Boolean = false,
+  @get:PropertyName("isPublic") val isPublic: Boolean = false,
   val inviteCode: String = "",
   val pinnedMessageId: String = "",
   val pinnedPreview: String = "",
@@ -103,7 +104,7 @@ data class ChatMessage(
   val senderType: String = "user",
   val senderName: String = "",
   val memberUids: List<String> = emptyList(),
-  val isPublic: Boolean = false,
+  @get:PropertyName("isPublic") val isPublic: Boolean = false,
   val text: String = "",
   val replyToMessageId: String = "",
   val replyPreviewText: String = "",
@@ -112,8 +113,8 @@ data class ChatMessage(
   val attachmentType: String = "none",
   val attachmentName: String = "",
   val attachmentData: String = "",
-  val isSilent: Boolean = false,
-  val isEdited: Boolean = false,
+  @get:PropertyName("isSilent") val isSilent: Boolean = false,
+  @get:PropertyName("isEdited") val isEdited: Boolean = false,
   val viewCount: Long = 1L,
   val readByUids: List<String> = emptyList(),
   @ServerTimestamp val createdAt: Timestamp? = null,

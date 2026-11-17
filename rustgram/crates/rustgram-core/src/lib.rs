@@ -4,7 +4,7 @@ use rustgram_ai::{
 use rustgram_auth::{
     direct_pair_chat_id, require_authenticated_uid, saved_messages_chat_id, starter_bot_chat_id,
 };
-use rustgram_chat::{toggle_archive_list, ChatFilter};
+use rustgram_chat::{sort_chats_by_activity, toggle_archive_list, ChatFilter};
 use rustgram_common::{
     format_structured_error, sanitize_id, ChatMessage, ChatRoom, ContactEntry, DraftEntry,
     OperationType,
@@ -13,9 +13,14 @@ use rustgram_contacts::{
     build_contact_entry, can_message_contact, normalize_lookup_handle, sort_contacts,
 };
 use rustgram_crypto::{generate_invite_code, message_integrity_fingerprint, sha256_hex};
-use rustgram_groups::{build_chat_room, prepare_add_group_member, prepare_join_public_channel};
+use rustgram_groups::{
+    build_chat_room, prepare_add_group_member, prepare_join_public_channel,
+    prepare_leave_public_channel,
+};
 use rustgram_media::{format_document_size_kb, format_voice_note_filename, validate_attachment};
-use rustgram_messaging::{prepare_edit_message, prepare_send_message, toggle_reaction_map};
+use rustgram_messaging::{
+    plan_read_receipts, prepare_edit_message, prepare_send_message, toggle_reaction_map,
+};
 use rustgram_profile::{build_initial_profile, build_profile_update, normalize_language};
 use rustgram_search::{filter_chat_workspace, search_messages_in_chat};
 use rustgram_storage::{build_call_log_entry, plan_draft_mutation};
@@ -248,10 +253,10 @@ pub fn localized_strings(lang: &str) -> LocalizedStrings {
       block: "Block".into(),
       unblock: "Unblock".into(),
       blocked_badge: "Blocked".into(),
-      calls_title: "Calls".into(),
-      audio_call: "Audio Call".into(),
-      video_call: "Audio/Call Check".into(),
-      local_preview_notice: "Local audio/session check mode: live peer-to-peer WebRTC calls require an external signaling/TURN server.".into(),
+      calls_title: "Calls & Diagnostics".into(),
+      audio_call: "Mic Audio Check".into(),
+      video_call: "Session Preview".into(),
+      local_preview_notice: "Local microphone & session check mode: live P2P WebRTC calls require signaling/TURN servers, and end-to-end encryption requires X3DH/Double Ratchet key exchange.".into(),
       end_call: "End Call".into(),
       mic_muted: "Mic Muted".into(),
       mic_active: "Mic Active".into(),
@@ -338,10 +343,10 @@ pub fn localized_strings(lang: &str) -> LocalizedStrings {
       block: "Заблокировать".into(),
       unblock: "Разблокировать".into(),
       blocked_badge: "В чёрном списке".into(),
-      calls_title: "Звонки".into(),
-      audio_call: "Аудиозвонок".into(),
-      video_call: "Видеопроверка".into(),
-      local_preview_notice: "Локальный режим проверки аудио/видео: для звонков между устройствами требуется внешний WebRTC TURN-сервер.".into(),
+      calls_title: "Звонки и диагностика".into(),
+      audio_call: "Проверка микрофона".into(),
+      video_call: "Тест сессии".into(),
+      local_preview_notice: "Локальная диагностика микрофона и журнала: полноценные P2P WebRTC-звонки требуют сервер сигналинга/TURN, а E2EE — обмена ключами X3DH/Double Ratchet.".into(),
       end_call: "Завершить".into(),
       mic_muted: "Микрофон выкл.".into(),
       mic_active: "Микрофон вкл.".into(),
@@ -470,10 +475,21 @@ pub enum CoreCommand {
         uid: String,
         chat: ChatRoom,
     },
+    LeavePublicChannel {
+        uid: String,
+        chat: ChatRoom,
+    },
     AddGroupMember {
         uid: String,
         chat: ChatRoom,
         new_member_uid: String,
+    },
+    PlanReadReceipts {
+        uid: String,
+        messages: Vec<ChatMessage>,
+    },
+    SortChats {
+        chats: Vec<ChatRoom>,
     },
     ToggleArchiveChat {
         uid: String,
@@ -754,6 +770,12 @@ pub fn execute_command_json(raw_json: &str) -> String {
                 Err(e) => err_json(&e.to_string()),
             }
         }
+        CoreCommand::LeavePublicChannel { uid, chat } => {
+            match prepare_leave_public_channel(&uid, &chat) {
+                Ok(v) => ok_json(v),
+                Err(e) => err_json(&e.to_string()),
+            }
+        }
         CoreCommand::AddGroupMember {
             uid,
             chat,
@@ -762,6 +784,13 @@ pub fn execute_command_json(raw_json: &str) -> String {
             Ok(v) => ok_json(v),
             Err(e) => err_json(&e.to_string()),
         },
+        CoreCommand::PlanReadReceipts { uid, messages } => {
+            match plan_read_receipts(&uid, &messages) {
+                Ok(v) => ok_json(v),
+                Err(e) => err_json(&e.to_string()),
+            }
+        }
+        CoreCommand::SortChats { chats } => ok_json(sort_chats_by_activity(chats)),
         CoreCommand::ToggleArchiveChat {
             uid,
             archived_by_uids,

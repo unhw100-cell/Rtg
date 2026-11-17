@@ -122,6 +122,32 @@ pub fn prepare_add_group_member(
     Ok(updated)
 }
 
+pub fn prepare_leave_public_channel(
+    uid: &str,
+    chat: &ChatRoom,
+) -> Result<Vec<String>, RustDomainError> {
+    let clean_uid = require_authenticated_uid(Some(uid))?;
+    if !chat.is_public {
+        return Err(RustDomainError::PermissionDenied(
+            "Only public channels support self-unsubscribe.".into(),
+        ));
+    }
+    if chat.owner_id == clean_uid {
+        return Err(RustDomainError::PermissionDenied(
+            "Channel owner cannot unsubscribe from own channel.".into(),
+        ));
+    }
+    if !chat.member_uids.iter().any(|u| u == &clean_uid) {
+        return Ok(chat.member_uids.clone());
+    }
+    Ok(chat
+        .member_uids
+        .iter()
+        .filter(|u| *u != &clean_uid)
+        .cloned()
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -147,7 +173,7 @@ mod tests {
         assert!(!group.is_public);
         assert!(prepare_join_public_channel("u2", &group).is_err());
 
-        let channel = build_chat_room(
+        let mut channel = build_chat_room(
             "u1",
             "channel",
             "Rust News",
@@ -166,5 +192,11 @@ mod tests {
         assert!(channel.is_public);
         let joined = prepare_join_public_channel("u2", &channel).unwrap();
         assert_eq!(joined, vec!["u1", "u2"]);
+        channel.member_uids = joined;
+        assert!(prepare_leave_public_channel("u1", &channel).is_err());
+        assert_eq!(
+            prepare_leave_public_channel("u2", &channel).unwrap(),
+            vec!["u1"]
+        );
     }
 }

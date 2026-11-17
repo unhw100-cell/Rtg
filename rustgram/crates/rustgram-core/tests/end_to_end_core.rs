@@ -77,4 +77,48 @@ fn end_to_end_profile_chat_message_ai_search_workflow() {
     assert_eq!(ai_res["ok"], true);
     assert_eq!(ai_res["data"]["modelName"], "gemini-3.8-flash");
     assert_eq!(ai_res["data"]["history"].as_array().unwrap().len(), 1);
+
+    let join_cmd = json!({
+      "op": "join_public_channel",
+      "uid": "uid_bob_02",
+      "chat": room_res["data"]
+    });
+    let join_res: serde_json::Value =
+        serde_json::from_str(&execute_command_json(&join_cmd.to_string())).unwrap();
+    assert_eq!(join_res["ok"], true);
+    let mut updated_room = room_res["data"].clone();
+    updated_room["memberUids"] = join_res["data"].clone();
+
+    let leave_cmd = json!({
+      "op": "leave_public_channel",
+      "uid": "uid_bob_02",
+      "chat": updated_room
+    });
+    let leave_res: serde_json::Value =
+        serde_json::from_str(&execute_command_json(&leave_cmd.to_string())).unwrap();
+    assert_eq!(leave_res["ok"], true);
+    assert_eq!(leave_res["data"], json!(["uid_alice_01"]));
+
+    let receipts_cmd = json!({
+      "op": "plan_read_receipts",
+      "uid": "uid_bob_02",
+      "messages": [send_res["data"]["message"]]
+    });
+    let receipts_res: serde_json::Value =
+        serde_json::from_str(&execute_command_json(&receipts_cmd.to_string())).unwrap();
+    assert_eq!(receipts_res["ok"], true);
+    assert_eq!(receipts_res["data"].as_array().unwrap().len(), 1);
+    assert_eq!(
+        receipts_res["data"][0]["readByUids"],
+        json!(["uid_alice_01", "uid_bob_02"])
+    );
+
+    let sort_cmd = json!({
+      "op": "sort_chats",
+      "chats": [room_res["data"]]
+    });
+    let sort_res: serde_json::Value =
+        serde_json::from_str(&execute_command_json(&sort_cmd.to_string())).unwrap();
+    assert_eq!(sort_res["ok"], true);
+    assert_eq!(sort_res["data"].as_array().unwrap().len(), 1);
 }

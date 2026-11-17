@@ -22,8 +22,8 @@ pub extern "system" fn Java_com_example_rust_RustBridge_nativeCoreInfoJson(
     mut env: JNIEnv,
     _class: JClass,
 ) -> jstring {
-    let json =
-        serde_json::to_string(&core_info()).unwrap_or_else(|e| format!(r#"{{"error":"{e}"}}"#));
+    let json = serde_json::to_string(&core_info())
+        .unwrap_or_else(|e| serde_json::json!({ "error": e.to_string() }).to_string());
     to_jstring(&mut env, &json)
 }
 
@@ -35,7 +35,12 @@ pub extern "system" fn Java_com_example_rust_RustBridge_nativeDispatchJson(
 ) -> jstring {
     let result = match from_jstring(&mut env, &command_json) {
         Ok(raw) => execute_command_json(&raw),
-        Err(e) => format!(r#"{{"ok":false,"data":null,"error":"{e}"}}"#),
+        Err(e) => serde_json::json!({
+            "ok": false,
+            "data": serde_json::Value::Null,
+            "error": e,
+        })
+        .to_string(),
     };
     to_jstring(&mut env, &result)
 }

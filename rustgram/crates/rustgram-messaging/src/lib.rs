@@ -1,5 +1,5 @@
 use rustgram_auth::require_authenticated_uid;
-use rustgram_common::{limits, truncate_chars, ChatMessage, RustDomainError};
+use rustgram_common::{limits, sanitize_id, truncate_chars, ChatMessage, RustDomainError};
 use rustgram_crypto::message_integrity_fingerprint;
 use rustgram_media::validate_attachment;
 use serde::{Deserialize, Serialize};
@@ -12,6 +12,14 @@ pub struct OutgoingMessagePlan {
     pub last_message_preview: String,
     pub last_message_sender: String,
     pub integrity_sha256: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadReceiptUpdate {
+    pub message_id: String,
+    pub read_by_uids: Vec<String>,
+    pub view_count: i64,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -34,11 +42,18 @@ pub fn prepare_send_message(
 ) -> Result<OutgoingMessagePlan, RustDomainError> {
     let clean_uid = require_authenticated_uid(Some(uid))?;
     let clean_chat_id = chat_id.trim();
-    if clean_chat_id.is_empty() {
+    if clean_chat_id.is_empty()
+        || clean_chat_id.len() > limits::MAX_UID_LEN
+        || !clean_chat_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
         return Err(RustDomainError::InvalidIdentifier(
-            "chatId cannot be empty".into(),
+            "chatId must match [a-zA-Z0-9_-]{1,128}".into(),
         ));
     }
+    let clean_chat_id = clean_chat_id.to_string();
+    let clean_message_id = sanitize_id(message_id, "msg");
 
     let valid_sender_type = if sender_type.trim() == "ai_bot" {
         "ai_bot".to_string()
@@ -83,7 +98,7 @@ pub fn prepare_send_message(
         &attachment.attachment_name,
     );
     let fingerprint = message_integrity_fingerprint(
-        clean_chat_id,
+        &clean_chat_id,
         &clean_uid,
         &clean_text,
         &attachment.attachment_type,
@@ -91,8 +106,8 @@ pub fn prepare_send_message(
 
     Ok(OutgoingMessagePlan {
         message: ChatMessage {
-            id: message_id.trim().to_string(),
-            chat_id: clean_chat_id.to_string(),
+            id: clean_message_id,
+            chat_id: clean_chat_id,
             author_id: clean_uid.clone(),
             sender_type: valid_sender_type,
             sender_name: clean_sender.clone(),
@@ -188,6 +203,35 @@ pub fn toggle_reaction_map(
     Ok(reactions)
 }
 
+pub fn plan_read_receipts(
+    uid: &str,
+    messages: &[ChatMessage],
+) -> Result<Vec<ReadReceiptUpdate>, RustDomainError> {
+    let clean_uid = require_authenticated_uid(Some(uid))?;
+    let mut updates = Vec::new();
+    for msg in messages {
+        if msg.id.trim().is_empty() {
+            continue;
+        }
+        let already_read = msg.read_by_uids.iter().any(|u| u == &clean_uid);
+        if already_read || msg.author_id == clean_uid {
+            continue;
+        }
+        if msg.read_by_uids.len() >= limits::MAX_MEMBERS {
+            continue;
+        }
+        let mut readers = msg.read_by_uids.clone();
+        readers.push(clean_uid.clone());
+        let next_views = (msg.view_count.max(1) + 1).max(readers.len() as i64);
+        updates.push(ReadReceiptUpdate {
+            message_id: msg.id.clone(),
+            read_by_uids: readers,
+            view_count: next_views,
+        });
+    }
+    Ok(updates)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,5 +265,16 @@ mod tests {
         assert_eq!(r1.get("🔥").unwrap(), &vec!["u1".to_string()]);
         let r2 = toggle_reaction_map("u1", r1, "🔥").unwrap();
         assert!(!r2.contains_key("🔥"));
+
+        let incoming = ChatMessage {
+            author_id: "u2".into(),
+            read_by_uids: vec!["u2".into()],
+            view_count: 1,
+            ..plan.message.clone()
+        };
+        let receipts = plan_read_receipts("u1", &[plan.message, incoming]).unwrap();
+        assert_eq!(receipts.len(), 1);
+        assert_eq!(receipts[0].read_by_uids, vec!["u2", "u1"]);
+        assert_eq!(receipts[0].view_count, 2);
     }
 }

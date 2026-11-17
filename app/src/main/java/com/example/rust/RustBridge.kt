@@ -146,12 +146,25 @@ data class RustCryptoDigest(
   val integrity: String,
 )
 
+data class RustReadReceiptUpdate(
+  val messageId: String,
+  val readByUids: List<String>,
+  val viewCount: Long,
+)
+
+sealed interface RustNativeStatus {
+  data class Ready(val info: RustCoreInfo) : RustNativeStatus
+
+  data class Unavailable(val reason: String) : RustNativeStatus
+}
+
 /**
  * Direct JNI bridge into `librustgram_bridge.so` (15-crate Rust workspace).
  * Automatically resolves either Android `jniLibs` or host JVM test shared library paths.
  */
 object RustBridge {
   private val loaded = AtomicBoolean(false)
+  @Volatile private var lastLoadError: String? = null
 
   private fun ensureLoaded() {
     if (loaded.get()) return
@@ -160,8 +173,9 @@ object RustBridge {
       try {
         System.loadLibrary("rustgram_bridge")
         loaded.set(true)
+        lastLoadError = null
         return
-      } catch (primaryErr: UnsatisfiedLinkError) {
+      } catch (primaryErr: Throwable) {
         val candidates =
           listOf(
             File("app/build/rust-host-jni/librustgram_bridge.so"),
@@ -171,11 +185,18 @@ object RustBridge {
           )
         for (candidate in candidates) {
           if (candidate.exists()) {
-            System.load(candidate.absolutePath)
-            loaded.set(true)
-            return
+            try {
+              System.load(candidate.absolutePath)
+              loaded.set(true)
+              lastLoadError = null
+              return
+            } catch (candidateErr: Throwable) {
+              lastLoadError = candidateErr.localizedMessage ?: candidateErr.javaClass.simpleName
+              throw candidateErr
+            }
           }
         }
+        lastLoadError = primaryErr.localizedMessage ?: primaryErr.javaClass.simpleName
         throw primaryErr
       }
     }
@@ -190,9 +211,25 @@ object RustBridge {
   private external fun nativeLocalizedStringsJson(lang: String): String
 
   fun isNativeLibraryLoaded(): Boolean {
-    ensureLoaded()
-    return loaded.get()
+    return try {
+      ensureLoaded()
+      loaded.get()
+    } catch (_: Throwable) {
+      false
+    }
   }
+
+  fun probeNativeLibrary(): RustNativeStatus {
+    return try {
+      RustNativeStatus.Ready(coreInfo())
+    } catch (t: Throwable) {
+      val reason = t.localizedMessage ?: lastLoadError ?: t.javaClass.simpleName
+      lastLoadError = reason
+      RustNativeStatus.Unavailable(reason)
+    }
+  }
+
+  fun lastNativeError(): String? = lastLoadError
 
   fun coreInfo(): RustCoreInfo {
     ensureLoaded()
@@ -643,6 +680,42 @@ object RustBridge {
       mapOf("uid" to uid, "chat" to chat.toWire()),
     )
       .asStrList()
+  }
+
+  fun leavePublicChannel(uid: String, chat: ChatRoom): List<String> {
+    return dispatch(
+      "leave_public_channel",
+      mapOf("uid" to uid, "chat" to chat.toWire()),
+    )
+      .asStrList()
+  }
+
+  fun sortChats(chats: List<ChatRoom>): List<ChatRoom> {
+    if (chats.size <= 1) return chats
+    val byId = chats.associateBy { it.id }
+    val result =
+      dispatch(
+        "sort_chats",
+        mapOf("chats" to chats.map { it.toWire() }),
+      )
+        .asObjList()
+    return result.mapNotNull { item -> byId[item["id"].asStr()] }
+  }
+
+  fun planReadReceipts(uid: String, messages: List<ChatMessage>): List<RustReadReceiptUpdate> {
+    if (messages.isEmpty()) return emptyList()
+    return dispatch(
+      "plan_read_receipts",
+      mapOf("uid" to uid, "messages" to messages.map { it.toWire() }),
+    )
+      .asObjList()
+      .map { item ->
+        RustReadReceiptUpdate(
+          messageId = item["messageId"].asStr(),
+          readByUids = item["readByUids"].asStrList(),
+          viewCount = (item["viewCount"] as? Number)?.toLong() ?: 1L,
+        )
+      }
   }
 
   fun addGroupMember(uid: String, chat: ChatRoom, newMemberUid: String): List<String> {
